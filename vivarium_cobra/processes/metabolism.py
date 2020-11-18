@@ -36,7 +36,7 @@ from vivarium.library.make_network import (
 from vivarium.library.units import units
 from vivarium.library.dict_utils import tuplify_port_dicts
 
-from vivarium_cobra.library.cobra_wrapper import CobraFBA, AVOGADRO
+from vivarium_cobra.library.cobra_FBA import CobraFBA, AVOGADRO
 from vivarium_cobra.library.regulation_logic import build_rule
 
 
@@ -332,8 +332,9 @@ class Metabolism(Process):
 
         # convert exchange fluxes to counts
         field_updates = {
-            reaction: {
-                '_value': int((flux * mmol_to_counts).magnitude),
+            reaction: int((flux * mmol_to_counts).magnitude)
+                # {
+                # '_value': int((flux * mmol_to_counts).magnitude),
                 # '_updater': {
                 #     'updater': 'update_field_with_exchange',
                 #     'port_mapping': {
@@ -341,7 +342,7 @@ class Metabolism(Process):
                 #         'dimensions': 'dimensions',
                 #     },
                 # },
-            }
+            # }
             for reaction, flux in exchange_fluxes.items()
         }
 
