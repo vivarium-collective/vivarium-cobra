@@ -7,17 +7,16 @@ with open("README.md", 'r') as readme:
     long_description = readme.read()
 
 setup(
-    name='',  # TODO: Put your package name here.
+    name='vivarium-cobra',
     version='0.0.1',
     packages=[
-        # TODO: Replace 'template' with the name of your folder.
-        'template',
-        'template.processes',
-        'template.compartments',
-        'template.experiments',
+        'vivarium_cobra',
+        'vivarium_cobra.processes',
+        'vivarium_cobra.composites',
+        'vivarium_cobra.experiments',
     ],
-    author='',  # TODO: Put your name here.
-    author_email='',  # TODO: Put your email here.
+    author='Eran Agmon',
+    author_email='eagmon@stanford.edu',
     url='',  # TODO: Put your project URL here.
     license='',  # TODO: Choose a license.
     entry_points={
@@ -29,6 +28,5 @@ setup(
     include_package_data=True,
     install_requires=[
         'vivarium-core',
-        # TODO: Add other dependencies.
     ],
 )
