@@ -36,17 +36,11 @@ from vivarium.library.make_network import (
 from vivarium.library.units import units
 from vivarium.library.dict_utils import tuplify_port_dicts
 
-from vivarium_cobra.library.cobra_fba import CobraFBA, AVOGADRO
+from vivarium_cobra.library.cobra_wrapper import CobraFBA, AVOGADRO
 from vivarium_cobra.library.regulation_logic import build_rule
 
-# from vivarium_cell.data import REFERENCE_DATA_DIR
 
-
-
-
-
-
-NAME = 'cobra'
+NAME = 'cobra_process'
 
 
 def get_fg_from_counts(counts_dict, mw):
@@ -54,22 +48,6 @@ def get_fg_from_counts(counts_dict, mw):
         coeff / AVOGADRO * mw.get(mol_id, 0.0) * (units.g / units.mol)
         for mol_id, coeff in counts_dict.items()])  # g
     return composition_mass.to('fg')
-
-
-def get_minimal_media_iAF1260b(
-        scale_concentration=1,
-        override_initial={},
-):
-    config = get_iAF1260b_config()
-    metabolism = Metabolism(config)
-    initial_state = metabolism.initial_state()
-    molecules = {
-        mol_id: conc * scale_concentration
-        for mol_id, conc in initial_state['external'].items()
-    }
-    for mol_id, conc in override_initial.items():
-        molecules[mol_id] = conc
-    return molecules
 
 
 
@@ -128,9 +106,9 @@ class Metabolism(Process):
         'default_upper_bound': 0.0,
         'regulation': {},
         'initial_state': {},
-        'exchange_threshold': 1e-4,  # concentrations lower than exchange_threshold are considered depleted
+        'exchange_threshold': 1e-4,
         'initial_mass': 1000 * units.fg,
-        'global_deriver_key': 'global_deriver',
+        'volume_deriver_key': 'volume_deriver',
         'mass_deriver_key': 'mass_deriver',
         'time_step': 1,
     }
@@ -171,7 +149,7 @@ class Metabolism(Process):
 
         # TODO -- move this super up to the top of the init, and replace all or_default
         super(Metabolism, self).__init__(initial_parameters)
-        self.global_deriver_key = self.parameters['global_deriver_key']
+        self.volume_deriver_key = self.parameters['volume_deriver_key']
         self.mass_deriver_key = self.parameters['mass_deriver_key']
         self.initial_mass = self.parameters['initial_mass']
 
@@ -219,7 +197,6 @@ class Metabolism(Process):
             'reactions',
             'flux_bounds',
             'global',
-            'dimensions',
         ]
 
         schema = {port: {} for port in ports}
@@ -280,19 +257,6 @@ class Metabolism(Process):
             }
         }
 
-        # dimensions
-        schema['dimensions'] = {
-            'bounds': {
-                '_default': [1, 1],
-            },
-            'n_bins': {
-                '_default': [1, 1],
-            },
-            'depth': {
-                '_default': 1,
-            },
-        }
-
         return schema
 
     def derivers(self):
@@ -306,8 +270,8 @@ class Metabolism(Process):
                     'from_path': ('..', '..'),
                 },
             },
-            self.global_deriver_key: {
-                'deriver': 'globals_deriver',
+            self.volume_deriver_key: {
+                'deriver': 'volume_deriver',
                 'port_mapping': {
                     'global': 'global',
                 },
@@ -370,13 +334,13 @@ class Metabolism(Process):
         field_updates = {
             reaction: {
                 '_value': int((flux * mmol_to_counts).magnitude),
-                '_updater': {
-                    'updater': 'update_field_with_exchange',
-                    'port_mapping': {
-                        'global': 'global',
-                        'dimensions': 'dimensions',
-                    },
-                },
+                # '_updater': {
+                #     'updater': 'update_field_with_exchange',
+                #     'port_mapping': {
+                #         'global': 'global',
+                #         'dimensions': 'dimensions',
+                #     },
+                # },
             }
             for reaction, flux in exchange_fluxes.items()
         }
@@ -588,15 +552,6 @@ reference_sim_settings = {
     },
     'timestep': 1,
     'total_time': 10}
-
-# def test_metabolism_similar_to_reference():
-#     config = get_iAF1260b_config()
-#     metabolism = Metabolism(config)
-#     timeseries = run_metabolism(metabolism, reference_sim_settings)
-#
-#     reference = load_timeseries(
-#         os.path.join(REFERENCE_DATA_DIR, NAME + '.csv'))
-#     assert_timeseries_close(timeseries, reference)
 
 
 if __name__ == '__main__':
