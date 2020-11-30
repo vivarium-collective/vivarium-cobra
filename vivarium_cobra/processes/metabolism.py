@@ -151,36 +151,51 @@ class Metabolism(Process):
         super(Metabolism, self).__init__(initial_parameters)
         self.volume_deriver_key = self.parameters['volume_deriver_key']
         self.mass_deriver_key = self.parameters['mass_deriver_key']
-        self.initial_mass = self.parameters['initial_mass']
 
+        # configure initial mass with intial_state
+        self.initial_mass = self.parameters['initial_mass']
+        self.initial_state()
 
     def initial_state(self, config=None):
+        if config is None:
+            config = {}
+        initial_mass = config.get('initial_mass', self.parameters['initial_mass'])
+        scale_concentration = config.get('scale_concentration', 1)
+        override_initial = config.get('override_initial', {})
 
-        ## Get initial internal state from initial_mass
-        initial_metabolite_mass = self.parameters['initial_mass']
+        # determine initial internal state from initial_mass
         mw = self.fba.molecular_weights
         composition = {
             mol_id: (-coeff if coeff < 0 else 0)
             for mol_id, coeff in self.objective_composition.items()}
         composition_mass = get_fg_from_counts(composition, mw)
-        scaling_factor = (initial_metabolite_mass / composition_mass).magnitude
+        scaling_factor = (initial_mass / composition_mass).magnitude
         internal_state = {mol_id: int(coeff * scaling_factor)
             for mol_id, coeff in composition.items()}
         self.initial_mass = get_fg_from_counts(internal_state, mw)
-        log.info('metabolism initial mass: {}'.format(self.initial_mass))
 
         ## Get external state from minimal_external fba solution
-        external_state = {state_id: 0.0 for state_id in self.fba.external_molecules}
-        external_state.update(self.fba.minimal_external)  # optimal minimal media from fba
+        external_state = {
+            state_id: 0.0
+            for state_id in self.fba.external_molecules}
+        external_state.update(self.fba.minimal_external)
 
         # solve the fba problem to get flux_bounds
-        flux_bounds = {}
         exchange_fluxes = self.fba.read_exchange_fluxes()
         internal_fluxes = self.fba.read_internal_fluxes()
-        flux_bounds.update({mol: -val for mol, val in exchange_fluxes.items()})
+        flux_bounds = {
+            mol: -val
+            for mol, val in exchange_fluxes.items()}
         flux_bounds.update(internal_fluxes)
 
-        # save initial state
+        # adjust external_state with config
+        external_state = {
+            mol_id: conc * scale_concentration
+            for mol_id, conc in external_state.items()
+        }
+        for mol_id, conc in override_initial.items():
+            external_state[mol_id] = conc
+
         return {
             'external': external_state,
             'internal': internal_state,
@@ -463,70 +478,19 @@ def make_kinetic_rate(mol_id, vmax, km=0.0):
         return flux
     return rate
 
-def toy_transport():
-    # process-like function for transport kinetics, used by simulate_metabolism
-    transport_kinetics = {
-        "EX_A": make_kinetic_rate("A", -1e-1, 5),  # A import
-    }
-    return transport_kinetics
-
-# sim functions
-def run_sim_save_network(config=get_toy_configuration(), out_dir='out/network'):
-    metabolism = Metabolism(config)
-
-    # initialize the process
-    stoichiometry = metabolism.fba.stoichiometry
-    reaction_ids = list(stoichiometry.keys())
-    external_mol_ids = metabolism.fba.external_molecules
-    objective = metabolism.fba.objective
-
-    settings = {
-        # 'environment_volume': 1e-6,  # L   # TODO -- bring back environment?
-        'timestep': 1,
-        'total_time': 10}
-
-    timeseries = simulate_process_in_experiment(metabolism, settings)
-    reactions = timeseries['reactions']
-
-    # save fluxes as node size
-    reaction_fluxes = {}
-    for rxn_id in reaction_ids:
-        if rxn_id in reactions:
-            flux = abs(np.mean(reactions[rxn_id][1:]))
-            reaction_fluxes[rxn_id] = np.log(1000 * flux + 1.1)
-        else:
-            reaction_fluxes[rxn_id] = 1
-
-    # define node type
-    node_types = {rxn_id: 'reaction' for rxn_id in reaction_ids}
-    node_types.update({mol_id: 'external_mol' for mol_id in external_mol_ids})
-    node_types.update({rxn_id: 'objective' for rxn_id in objective.keys()})
-    info = {
-        'node_types': node_types,
-        'reaction_fluxes': reaction_fluxes}
-
-    nodes, edges = make_network(stoichiometry, info)
-    save_network(nodes, edges, out_dir)
-
-def run_metabolism(metabolism, settings=None):
-    if not settings:
-        settings = {
-            'total_time': 10}
-    return simulate_process_in_experiment(metabolism, settings)
-
 # tests
 def test_toy_metabolism():
     regulation_logic = {
         'R4': 'if (external, O2) > 0.1 and not (external, F) < 0.1'}
 
     toy_config = get_toy_configuration()
-    transport = toy_transport()
+    transport = {
+        "EX_A": make_kinetic_rate("A", -1e-1, 5),  # A import
+    }
 
     toy_config['constrained_reaction_ids'] = list(transport.keys())
     toy_config['regulation'] = regulation_logic
     toy_metabolism = Metabolism(toy_config)
-
-    # TODO -- add molecular weights!
 
     # simulate toy model
     timeline = [
@@ -543,9 +507,6 @@ def test_toy_metabolism():
             'timeline': timeline}}
     return simulate_process_in_experiment(toy_metabolism, settings)
 
-def test_BiGG_metabolism(config=get_iAF1260b_config(), settings={}):
-    metabolism = Metabolism(config)
-    run_metabolism(metabolism, settings)
 
 reference_sim_settings = {
     'environment': {
@@ -555,32 +516,43 @@ reference_sim_settings = {
     'total_time': 10}
 
 
-if __name__ == '__main__':
+def run_bigg():
+    # configure BiGG metabolism
+    config = get_iAF1260b_config()
+    metabolism = Metabolism(config)
+
+    initial_config = {
+        'scale_concentration': 1e6,
+        'override_initial': {
+            'glc__D_e': 1.0,
+            'lcts_e': 8.0}
+    }
+    external_concentrations = metabolism.initial_state(config=initial_config)['external']
+
+    # simulation settings
+    sim_settings = {
+        'environment': {
+            'volume': 1e-5 * units.L,
+            'concentrations': external_concentrations,
+        },
+        'total_time': 100,  #2520,
+    }
+
+    # run simulation
+    return simulate_process_in_experiment(metabolism, sim_settings)
+
+
+def main():
     out_dir = os.path.join(PROCESS_OUT_DIR, NAME)
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
 
     parser = argparse.ArgumentParser(description='metabolism process')
-    parser.add_argument('--bigg', '-b', action='store_true', default=False,)
+    parser.add_argument('--bigg', '-b', action='store_true', default=False, )
+    parser.add_argument('--toy', '-t', action='store_true', default=False, )
     args = parser.parse_args()
 
     if args.bigg:
-        # configure BiGG metabolism
-        config = get_iAF1260b_config()
-        metabolism = Metabolism(config)
-        external_concentrations = metabolism.initial_state['external']
-
-        # simulation settings
-        sim_settings = {
-            'environment': {
-                'volume': 1e-5 * units.L,
-                'concentrations': external_concentrations,
-            },
-            'total_time': 2520,  # 2520 sec (42 min) is the expected doubling time in minimal media
-        }
-
-        # run simulation
-        timeseries = simulate_process_in_experiment(metabolism, sim_settings)
+        timeseries = run_bigg()
 
         save_timeseries(timeseries, out_dir)
         volume_ts = timeseries['global']['volume']
@@ -596,12 +568,11 @@ if __name__ == '__main__':
 
         # make plots from simulation output
         plot_simulation_output(timeseries, plot_settings, out_dir, 'BiGG_simulation')
-        plot_exchanges(timeseries, sim_settings, out_dir)
 
-        # make a gephi network
-        run_sim_save_network(get_iAF1260b_config(), out_dir)
-
-    else:
+    elif args.toy:
         timeseries = test_toy_metabolism()
         plot_settings = {}
         plot_simulation_output(timeseries, plot_settings, out_dir, 'toy_metabolism')
+
+if __name__ == '__main__':
+    main()
