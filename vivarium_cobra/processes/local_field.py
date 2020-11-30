@@ -9,8 +9,6 @@ from vivarium_cobra.library.lattice_utils import (
     count_to_concentration,
 )
 
-CONCENTRATION_UNIT = 1  # TODO -- units
-
 
 class LocalField(Deriver):
 
@@ -62,13 +60,11 @@ class LocalField(Deriver):
         bounds = states['dimensions']['bounds']
         depth = states['dimensions']['depth']
         exchanges = states['exchanges']
-        fields = states['fields']
 
         # get bin volume
         if self.nonspatial:
             bin_volume = self.bin_volume
         else:
-            # get bin
             bin_site = get_bin_site(location, n_bins, bounds)
             bin_volume = get_bin_volume(n_bins, bounds, depth) * units.L
 
@@ -77,7 +73,7 @@ class LocalField(Deriver):
         reset_exchanges = {}
         for mol_id, value in exchanges.items():
 
-            # get delta field
+            # delta concentration
             exchange = value * units.count
             concentration = count_to_concentration(exchange, bin_volume).to(
                 units.mmol / units.L).magnitude
