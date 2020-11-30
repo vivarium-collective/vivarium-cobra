@@ -13,10 +13,8 @@ to create bigg_models of metabolism.
 
 import os
 import argparse
-import logging as log
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 from vivarium.core.process import Process
 from vivarium.core.composition import (
@@ -28,11 +26,6 @@ from vivarium.core.composition import (
     PROCESS_OUT_DIR,
 )
 from vivarium.plots.simulation_output import plot_simulation_output
-from vivarium.library.make_network import (
-    get_reactions,
-    make_network,
-    save_network
-)
 from vivarium.library.units import units
 from vivarium.library.dict_utils import tuplify_port_dicts
 
@@ -52,11 +45,11 @@ def get_fg_from_counts(counts_dict, mw):
 
 
 class Metabolism(Process):
-    """A general class that is configured to match specific bigg_models
+    """A COBRA (COnstraint-Based Reconstruction and Analysis) process for metabolism
 
-    This metabolism process class bigg_models metabolism using flux balance
-    analysis (FBA). The FBA problem is defined using the provided
-    configuration parameters.
+    This process runs flux balance analysis (FBA) with COBRApy.
+    The FBA problem is defined using the provided configuration parameters,
+    and can also load BiGG models.
 
     To see how to configure the process manually, look at the source
     code for :py:func:`test_toy_metabolism`.
@@ -64,30 +57,20 @@ class Metabolism(Process):
     :term:`Ports`:
 
     * **external**: Holds the state of molecules external to the FBA
-      reactions. For a model of a cell's metabolism, this will likely
-      hold metabolite concentrations in the extracellular space.
+      reactions.
     * **internal**: Holds the state of molecules internal to the FBA.
-      For a model of a cell's metabolism, this will probably be the
-      cytosolic concentrations.
     * **exchange**: The accumulated counts of exchanged molecules with
       the external state, which can be used by an environmental compartment
       and updated for cell uptake and secretion.
-    * **reactions**: Holds the IDs of the modeled metabolic reactions.
-      The linked :term:`store` does not need to be shared with any other
-      processes.
-    * **flux_bounds**: The bounds on the FBA, which are imposed by the
-      availability of metabolites. For example, for the metabolism of a
-      cell, the bounds represent the limits of transmembrane transport.
+    * **reactions**: Holds the names of the modeled metabolic reactions.
+    * **flux_bounds**: Bounds on fluxes of the FBA problem.
     * **global**: Should be linked to the ``global`` :term:`store`.
 
     Args:
         initial_parameters (dict): Configures the process with the
             following keys/values:
 
-            * **initial_state** (:py:class:`dict`): the default state,
-              with a dict for internal and external, like this:
-              ``{'external': external_state, 'internal':
-              internal_state}``
+            * **model_path** (:py:class:`str`): path to a BiGG model
             * **stoichiometry** (:py:class:`dict`): a map from reaction
               ID to that reaction's stoichiometry dictionary, e.g.
               ``{reaction_id: stoichiometry_dict}``
@@ -101,7 +84,6 @@ class Metabolism(Process):
 
     name = NAME
     defaults = {
-        'constrained_reaction_ids': [],
         'model_path': '',
         'default_upper_bound': 0.0,
         'regulation': {},
@@ -110,7 +92,7 @@ class Metabolism(Process):
         'initial_mass': 1000 * units.fg,
         'volume_deriver_key': 'volume_deriver',
         'mass_deriver_key': 'mass_deriver',
-        'exchange_deriver_key': 'homogeneous_environment',
+        'exchange_deriver_key': 'local_field',
         'time_step': 1,
     }
 
@@ -125,12 +107,7 @@ class Metabolism(Process):
         self.fba = CobraFBA(initial_parameters)
         self.reaction_ids = self.fba.reaction_ids()
         self.exchange_threshold = self.defaults['exchange_threshold']
-
-        # additional FBA options
-        self.constrained_reaction_ids = self.or_default(
-            initial_parameters, 'constrained_reaction_ids')
-        self.default_upper_bound = self.or_default(
-            initial_parameters, 'default_upper_bound')
+        self.default_upper_bound = self.defaults['default_upper_bound']
 
         # make the regulation functions
         regulation_logic = self.or_default(
@@ -148,7 +125,8 @@ class Metabolism(Process):
                 else:
                     self.objective_composition[mol_id] = coeff1 * coeff2
 
-        # TODO -- move this super up to the top of the init, and replace all or_default
+
+        # TODO -- move this super to the top of the init, and replace all or_default
         super(Metabolism, self).__init__(initial_parameters)
         self.volume_deriver_key = self.parameters['volume_deriver_key']
         self.mass_deriver_key = self.parameters['mass_deriver_key']
@@ -156,6 +134,7 @@ class Metabolism(Process):
 
         # configure initial mass with intial_state
         self.initial_mass = self.parameters['initial_mass']
+        self.initial_external = {}
         self.initial_state()
 
     def initial_state(self, config=None):
@@ -177,10 +156,10 @@ class Metabolism(Process):
         self.initial_mass = get_fg_from_counts(internal_state, mw)
 
         ## Get external state from minimal_external fba solution
-        external_state = {
+        self.initial_external = {
             state_id: 0.0
             for state_id in self.fba.external_molecules}
-        external_state.update(self.fba.minimal_external)
+        self.initial_external.update(self.fba.minimal_external)
 
         # solve the fba problem to get flux_bounds
         exchange_fluxes = self.fba.read_exchange_fluxes()
@@ -191,26 +170,23 @@ class Metabolism(Process):
         flux_bounds.update(internal_fluxes)
 
         # adjust external_state with config
-        external_state = {
+        self.initial_external = {
             mol_id: conc * scale_concentration
-            for mol_id, conc in external_state.items()
+            for mol_id, conc in self.initial_external.items()
         }
         for mol_id, conc in override_initial.items():
-            external_state[mol_id] = conc
+            self.initial_external[mol_id] = conc
 
         return {
-            'external': external_state,
+            'external': self.initial_external,
             'internal': internal_state,
-            'flux_bounds': {
-                reaction_id: flux_bounds.get(reaction_id.replace('EX_', ''), self.default_upper_bound)
-                for reaction_id in self.constrained_reaction_ids},
         }
 
     def ports_schema(self):
         ports = [
             'internal',
             'external',
-            'exchange',
+            'exchanges',
             'reactions',
             'flux_bounds',
             'global',
@@ -218,12 +194,9 @@ class Metabolism(Process):
 
         schema = {port: {} for port in ports}
 
-        initial_state = self.initial_state()
-
         # internal
         for state in list(self.objective_composition.keys()):
             schema['internal'][state] = {
-                '_value': initial_state['internal'].get(state, 0),
                 '_divider': 'split',
                 '_default': 0.0,
                 '_emit': True,
@@ -234,10 +207,10 @@ class Metabolism(Process):
         # external and exchange
         for state in self.fba.external_molecules:
             schema['external'][state] = {
-                '_default': initial_state['external'].get(state, 0.0),
+                '_default': self.initial_external[state],
                 '_emit': True,
             }
-            schema['exchange'][state] = {
+            schema['exchanges'][state] = {
                 '_default': np.zeros((1, 1)),
             }
 
@@ -245,16 +218,16 @@ class Metabolism(Process):
         for state in self.reaction_ids:
             schema['reactions'][state] = {
                 '_default': 0.0,
-                '_emit': state in self.constrained_reaction_ids,
                 '_updater': 'set',
             }
 
         # flux_bounds
-        for state in self.constrained_reaction_ids:
-            schema['flux_bounds'][state] = {
-                '_default': initial_state['flux_bounds'].get(state, self.default_upper_bound),
+        schema['flux_bounds'] = {
+            '*': {
+                '_default': self.default_upper_bound,
                 '_emit': True,
             }
+        }
 
         # globals
         schema['global'] = {
@@ -263,8 +236,8 @@ class Metabolism(Process):
                 '_emit': True,
             },
             'mmol_to_counts': {
-                '_default': 0.0 * units.L / units.mmol,
-                '_emit': True,
+                # '_default': 0.0 * units.L / units.mmol,
+                # '_emit': True,
             },
             'location': {
                 '_default': [0.5, 0.5],
@@ -276,7 +249,7 @@ class Metabolism(Process):
     def derivers(self):
         return {
             self.mass_deriver_key: {
-                'deriver': 'mass_deriver',
+                'deriver': self.mass_deriver_key,
                 'port_mapping': {
                     'global': 'global',
                 },
@@ -285,7 +258,7 @@ class Metabolism(Process):
                 },
             },
             self.volume_deriver_key: {
-                'deriver': 'volume_deriver',
+                'deriver': self.volume_deriver_key,
                 'port_mapping': {
                     'global': 'global',
                 },
@@ -294,12 +267,14 @@ class Metabolism(Process):
                 },
             },
             self.exchange_deriver_key: {
-                'deriver': 'volume_deriver',
+                'deriver': self.exchange_deriver_key,
                 'port_mapping': {
-                    'global': 'global',
+                    'fields': 'external',
+                    'exchanges': 'exchanges',
                 },
                 'config': {
-                    'initial_mass': self.initial_mass,
+                    'initial_external': self.initial_external,
+                    'nonspatial': True,
                 },
             }
         }
@@ -353,7 +328,7 @@ class Metabolism(Process):
                     internal_state_update[mol_id] = added_count
 
         # convert exchange fluxes to counts
-        exchange_updates = {
+        exchanges_updates = {
             mol_id: int((flux * mmol_to_counts).magnitude)
             for mol_id, flux in exchange_fluxes.items()
         }
@@ -363,7 +338,7 @@ class Metabolism(Process):
         all_fluxes.update(exchange_reactions)
 
         update = {
-            'exchange': exchange_updates,
+            'exchanges': exchanges_updates,
             'internal': internal_state_update,
             'reactions': all_fluxes,
         }
@@ -488,7 +463,7 @@ def test_toy_metabolism():
         "EX_A": make_kinetic_rate("A", -1e-1, 5),  # A import
     }
 
-    toy_config['constrained_reaction_ids'] = list(transport.keys())
+    # toy_config['constrained_reaction_ids'] = list(transport.keys())
     toy_config['regulation'] = regulation_logic
     toy_metabolism = Metabolism(toy_config)
 
@@ -499,9 +474,9 @@ def test_toy_metabolism():
         (15, {})]
 
     settings = {
-        'environment': {
-            'volume': 1e-8 * units.L,
-        },
+        # 'environment': {
+        #     'volume': 1e-8 * units.L,
+        # },
         'timestep': 1.0,
         'timeline': {
             'timeline': timeline}}
@@ -510,32 +485,31 @@ def test_toy_metabolism():
 
 reference_sim_settings = {
     'environment': {
-        'volume': 1e-5 * units.L,
+        'volume': 1e-6 * units.L,
     },
     'timestep': 1,
     'total_time': 10}
 
 
-def run_bigg():
-    # configure BiGG metabolism
+def run_bigg(
+        total_time=100,
+        volume=1e-5,
+):
     config = get_iAF1260b_config()
     metabolism = Metabolism(config)
-
     initial_config = {
-        'scale_concentration': 1e6,
+        'scale_concentration': 1e1,
         # 'override_initial': {
         #     'glc__D_e': 1.0,
         #     'lcts_e': 8.0}
     }
-    external_concentrations = metabolism.initial_state(config=initial_config)['external']
+    initial_state = metabolism.initial_state(
+        config=initial_config)
 
     # simulation settings
     sim_settings = {
-        'environment': {
-            'volume': 1e-5 * units.L,
-            'concentrations': external_concentrations,
-        },
-        'total_time': 100,  #2520,
+        'initial_state': initial_state,
+        'total_time': total_time,
     }
 
     # run simulation
@@ -552,7 +526,9 @@ def main():
     args = parser.parse_args()
 
     if args.bigg:
-        timeseries = run_bigg()
+        timeseries = run_bigg(
+            total_time=100, #2520,
+        )
 
         save_timeseries(timeseries, out_dir)
         volume_ts = timeseries['global']['volume']

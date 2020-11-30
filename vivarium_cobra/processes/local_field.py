@@ -9,19 +9,25 @@ from vivarium_cobra.library.lattice_utils import (
     count_to_concentration,
 )
 
-CONCENTRATION_UNIT = 1  # TODO (ERAN) set value -- units.ng / units.mL
+CONCENTRATION_UNIT = 1  # TODO -- units
 
 
 class LocalField(Deriver):
 
     name = 'local_field'
-    defaults = {}
+    defaults = {
+        'initial_external': {},
+        'nonspatial': False,
+        'bin_volume': 1e-6 * units.L,
+    }
 
     def __init__(self, parameters=None):
         super(LocalField, self).__init__(parameters)
+        self.nonspatial = self.parameters['nonspatial']
+        self.bin_volume = self.parameters['bin_volume']
 
     def ports_schema(self):
-         return {
+        return {
             'exchanges': {
                 '*': {
                     '_default': 0,  # counts!
@@ -32,7 +38,7 @@ class LocalField(Deriver):
             },
             'fields': {
                 '*': {
-                    '_default': np.ones(1),
+                    '_default': np.ones(1) if not self.nonspatial else 1.0,
                     '_updater': 'accumulate',
                 }
             },
@@ -56,21 +62,33 @@ class LocalField(Deriver):
         bounds = states['dimensions']['bounds']
         depth = states['dimensions']['depth']
         exchanges = states['exchanges']
+        fields = states['fields']
 
-        # get bin
-        bin_site = get_bin_site(location, n_bins, bounds)
-        bin_volume = get_bin_volume(n_bins, bounds, depth) * units.L
+        # get bin volume
+        if self.nonspatial:
+            bin_volume = self.bin_volume
+        else:
+            # get bin
+            bin_site = get_bin_site(location, n_bins, bounds)
+            bin_volume = get_bin_volume(n_bins, bounds, depth) * units.L
 
         # apply exchanges
         delta_fields = {}
         reset_exchanges = {}
         for mol_id, value in exchanges.items():
-            delta_fields[mol_id] = np.zeros(
-                (n_bins[0], n_bins[1]), dtype=np.float64)
+
+            # get delta field
             exchange = value * units.count
-            concentration = count_to_concentration(exchange, bin_volume)
-            delta_fields[mol_id][bin_site[0], bin_site[1]] += concentration.to(
+            concentration = count_to_concentration(exchange, bin_volume).to(
                 units.mmol / units.L).magnitude
+
+            if self.nonspatial:
+                delta_fields[mol_id] = concentration
+            else:
+                delta_fields[mol_id] = np.zeros((n_bins[0], n_bins[1]), dtype=np.float64)
+                delta_fields[mol_id][bin_site[0], bin_site[1]] += concentration
+
+            # reset the exchange value
             reset_exchanges[mol_id] = {
                 '_value': 0,
                 '_updater': 'set'}

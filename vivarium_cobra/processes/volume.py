@@ -56,7 +56,7 @@ class Volume(Deriver):
     name = 'volume_deriver'
     defaults = {
         'width': 1,  # um
-        'initial_mass': 1339 * units.fg,  # wet mass in fg
+        'initial_mass': 1000 * units.fg,  # wet mass in fg
     }
 
     def __init__(self, parameters=None):
