@@ -20,9 +20,6 @@ from vivarium.core.process import Process
 from vivarium.core.composition import (
     simulate_process_in_experiment,
     save_timeseries,
-    flatten_timeseries,
-    load_timeseries,
-    assert_timeseries_close,
     PROCESS_OUT_DIR,
 )
 from vivarium.plots.simulation_output import plot_simulation_output
@@ -243,9 +240,8 @@ class Metabolism(Process):
             'mass': {
                 '_default': self.initial_mass,
                 '_emit': True},
-            'mmol_to_counts': {},
-            'location': {
-                '_default': [0.5, 0.5]}}
+            'mmol_to_counts': {}
+        }
 
         return schema
 
@@ -435,50 +431,32 @@ def get_toy_configuration():
 
     return config
 
-
-# toy functions
-def make_kinetic_rate(mol_id, vmax, km=0.0):
-    def rate(state):
-        flux = (vmax * state[mol_id]) / (km + state[mol_id])
-        return flux
-    return rate
-
 # tests
-def test_toy_metabolism():
+def test_toy_metabolism(
+        total_time=15
+):
     regulation_logic = {
         'R4': 'if (external, O2) > 0.1 and not (external, F) < 0.1'}
-
     toy_config = get_toy_configuration()
-    transport = {
-        "EX_A": make_kinetic_rate("A", -1e-1, 5),  # A import
-    }
-
-    # toy_config['constrained_reaction_ids'] = list(transport.keys())
     toy_config['regulation'] = regulation_logic
+    toy_config['target_added_mass'] = None
     toy_metabolism = Metabolism(toy_config)
 
     # simulate toy model
+    interval = int(total_time/3)
     timeline = [
-        (5, {('external', 'A'): 1}),
-        (10, {('external', 'F'): 0}),
-        (15, {})]
+        (interval, {('external', 'A'): 1}),
+        (2*interval, {('external', 'F'): 0}),
+        (total_time, {})]
 
     settings = {
-        # 'environment': {
-        #     'volume': 1e-8 * units.L,
-        # },
-        'timestep': 1.0,
+        'initial_state': toy_metabolism.initial_state(),
+        # 'total_time': total_time,
         'timeline': {
-            'timeline': timeline}}
+            'timeline': timeline,
+            'time_step': 10}
+    }
     return simulate_process_in_experiment(toy_metabolism, settings)
-
-
-reference_sim_settings = {
-    'environment': {
-        'volume': 1e-6 * units.L,
-    },
-    'timestep': 1,
-    'total_time': 10}
 
 
 def run_bigg(
@@ -486,7 +464,8 @@ def run_bigg(
         volume=1e-5,
 ):
     config = get_iAF1260b_config()
-    config.update({'bin_volume': volume * units.L})
+    config.update({
+        'bin_volume': volume * units.L})
     metabolism = Metabolism(config)
     initial_config = {
         'scale_concentration': 1e1,
@@ -521,25 +500,30 @@ def main():
             total_time=2520,
         )
 
-        save_timeseries(timeseries, out_dir)
+        # save_timeseries(timeseries, out_dir)  # TODO -- make a test with timeseries reference
         volume_ts = timeseries['global']['volume']
         mass_ts = timeseries['global']['mass']
         print('volume growth: {}'.format(volume_ts[-1] / volume_ts[0]))
         print('mass growth: {}'.format(mass_ts[-1] / mass_ts[0]))
 
-        # plot settings
+        # plot
         plot_settings = {
             'max_rows': 30,
             'remove_zeros': True,
             'skip_ports': ['exchange', 'reactions']}
-
-        # make plots from simulation output
         plot_simulation_output(timeseries, plot_settings, out_dir, 'BiGG_simulation')
 
     elif args.toy:
-        timeseries = test_toy_metabolism()
+        timeseries = test_toy_metabolism(total_time=2500)
+
+        volume_ts = timeseries['global']['volume']
+        mass_ts = timeseries['global']['mass']
+        print('volume growth: {}'.format(volume_ts[-1] / volume_ts[0]))
+        print('mass growth: {}'.format(mass_ts[-1] / mass_ts[0]))
+
         plot_settings = {}
         plot_simulation_output(timeseries, plot_settings, out_dir, 'toy_metabolism')
+
 
 if __name__ == '__main__':
     main()

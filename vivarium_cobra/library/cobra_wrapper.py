@@ -12,7 +12,13 @@ AVOGADRO = constants.N_A * 1 / units.mol
 EXTERNAL_PREFIX = 'EX_'
 DEFAULT_UPPER_BOUND = 100.0
 
-def build_model(stoichiometry, reversible, objective, external_molecules, default_upper_bound=1000):
+def build_model(
+        stoichiometry,
+        reversible,
+        objective,
+        external_molecules,
+        default_upper_bound=DEFAULT_UPPER_BOUND
+):
     model = Model('fba')
     model.compartments = {'c': 'cytoplasm'}
 
@@ -197,22 +203,22 @@ class CobraFBA(object):
 
         self.exchange_bounds_keys = list(self.exchange_bounds.keys())
 
-        if config['target_added_mass'] is not None:
-            # get flux scaling factor based on the objective's predicted added mass
-            # this adjusts the BiGG FBA bounds to approximate single-cell rates
-            target_added_mass = 4.9e-7  # fit to approximate a doubling time of 2520 sec (42 min) in iAF1260b
+        if config.get('target_added_mass') is not None:
+            target_added_mass = config['target_added_mass']
 
             solution = self.model.optimize()
             objective_value = solution.objective_value
             added_mass = 0
             for reaction_id, coeff1 in self.objective.items():
                 for mol_id, coeff2 in self.stoichiometry[reaction_id].items():
-                    if coeff2 < 0:  # molecule is used to make biomass (negative coefficient)
-                        mw = self.molecular_weights.get(mol_id) * (units.g / units.mol)
-                        count = int(-coeff1 * coeff2 * objective_value)
+                    if coeff2 < 0:
+                        # molecule is used to make biomass (negative coefficient)
+                        mw = self.molecular_weights[mol_id] * (units.g / units.mol)
+                        count = -coeff1 * coeff2 * objective_value
                         mol = count / AVOGADRO
                         mol_added_mass = mw * mol
                         added_mass += mol_added_mass.to('fg').magnitude
+
             self.flux_scaling = target_added_mass / added_mass
         else:
             self.flux_scaling = 1
