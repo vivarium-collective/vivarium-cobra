@@ -29,7 +29,7 @@ from vivarium.plots.simulation_output import plot_simulation_output
 from vivarium.library.units import units
 from vivarium.library.dict_utils import tuplify_port_dicts
 
-from vivarium_cobra.library.cobra_FBA import CobraFBA, AVOGADRO
+from vivarium_cobra.library.cobra_wrapper import CobraFBA, AVOGADRO
 from vivarium_cobra.library.regulation_logic import build_rule
 
 
