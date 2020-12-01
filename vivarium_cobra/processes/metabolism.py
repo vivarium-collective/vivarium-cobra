@@ -42,7 +42,18 @@ def get_fg_from_counts(counts_dict, mw):
         for mol_id, coeff in counts_dict.items()])  # g
     return composition_mass.to('fg')
 
-
+fba_parameters = [
+    'model_path',
+    'stoichiometry',
+    'reversible',
+    'external_molecules',
+    'objective',
+    'flux_bounds',
+    'molecular_weights',
+    'exchange_bounds',
+    'default_upper_bound',
+    'target_added_mass',
+]
 
 class Metabolism(Process):
     """A COBRA (COnstraint-Based Reconstruction and Analysis) process for metabolism
@@ -86,7 +97,15 @@ class Metabolism(Process):
     name = NAME
     defaults = {
         'model_path': '',
+        'stoichiometry': {},
+        'reversible': [],
+        'external_molecules': [],
+        'objective': {},
+        'flux_bounds': {},
+        'molecular_weights': {},
+        'exchange_bounds': {},
         'default_upper_bound': 0.0,
+        'target_added_mass': 4.9e-7,  # fit to approximate a doubling time of 2520 sec (42 min) in iAF1260b
         'regulation': {},
         'initial_state': {},
         'exchange_threshold': 1e-4,
@@ -104,7 +123,9 @@ class Metabolism(Process):
         self.nAvogadro = AVOGADRO
 
         # initialize FBA
-        self.fba = CobraFBA(self.parameters)
+        self.fba = CobraFBA({parameter: value
+            for parameter, value in self.parameters.items()
+            if parameter in fba_parameters})
         self.reaction_ids = self.fba.reaction_ids()
         self.exchange_threshold = self.parameters['exchange_threshold']
         self.default_upper_bound = self.parameters['default_upper_bound']
@@ -156,7 +177,7 @@ class Metabolism(Process):
         self.initial_external = {
             state_id: 0.0
             for state_id in self.fba.external_molecules}
-        self.initial_external.update(self.fba.minimal_external)
+        self.initial_external.update(self.fba.minimal_external())
 
         # solve the fba problem to get flux_bounds
         exchange_fluxes = self.fba.read_exchange_fluxes()

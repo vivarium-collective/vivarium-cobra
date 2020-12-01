@@ -127,24 +127,6 @@ def extract_model(model):
         except:
             pass
 
-    # get flux scaling factor based on the objective's predicted added mass
-    # this adjusts the BiGG FBA bounds to approximate single-cell rates
-    target_added_mass = 4.9e-7  # fit to approximate a doubling time of 2520 sec (42 min) in iAF1260b
-
-    solution = model.optimize()
-    objective_value = solution.objective_value
-    added_mass = 0
-    for reaction_id, coeff1 in objective.items():
-        for mol_id, coeff2 in stoichiometry[reaction_id].items():
-            if coeff2 < 0: # molecule is used to make biomass (negative coefficient)
-                mw = molecular_weights.get(mol_id) * (units.g / units.mol)
-                count = int(-coeff1 * coeff2 * objective_value)
-                mol = count / AVOGADRO
-                mol_added_mass = mw * mol
-                added_mass += mol_added_mass.to('fg').magnitude
-
-    flux_scaling = target_added_mass / added_mass
-
     return {
         'stoichiometry': stoichiometry,
         'reversible': reversible,
@@ -153,16 +135,8 @@ def extract_model(model):
         'flux_bounds': flux_bounds,
         'exchange_bounds': exchange_bounds,
         'molecular_weights': molecular_weights,
-        'flux_scaling': flux_scaling}
+    }
 
-# def swap_synonyms(model):
-#     metabolites = model.metabolites
-#
-#     # swap metabolite ids
-#     for mol in metabolites:
-#         mol_id = mol.id
-#         mol_id = get_synonym(mol_id)
-#         mol.id = mol_id
 
 class CobraFBA(object):
     """
@@ -188,7 +162,6 @@ class CobraFBA(object):
         if model_path:
             # load a BiGG model
             self.model = cobra.io.load_json_model(model_path)
-            # swap_synonyms(self.model)
             extract = extract_model(self.model)
 
             self.stoichiometry = extract['stoichiometry']
@@ -199,7 +172,6 @@ class CobraFBA(object):
             self.molecular_weights = extract['molecular_weights']
             self.exchange_bounds = extract['exchange_bounds']
             self.default_upper_bound = DEFAULT_UPPER_BOUND  # TODO -- can this be extracted from model?
-            self.flux_scaling = extract['flux_scaling']
 
         else:
             # create an FBA model from config
@@ -211,7 +183,6 @@ class CobraFBA(object):
             self.molecular_weights = config.get('molecular_weights', {})
             self.exchange_bounds = config.get('exchange_bounds', {})
             self.default_upper_bound = config.get('default_upper_bound', DEFAULT_UPPER_BOUND)
-            self.flux_scaling = config.get('flux_scaling', 1)
 
             self.model = build_model(
                 self.stoichiometry,
@@ -226,15 +197,35 @@ class CobraFBA(object):
 
         self.exchange_bounds_keys = list(self.exchange_bounds.keys())
 
-        # get minimal external state
-        # TODO -- make sure that scaling is accounted for
-        max_growth = self.model.slim_optimize()
-        max_exchange = minimal_medium(self.model, max_growth)
-        self.minimal_external = {ex[len(EXTERNAL_PREFIX):len(ex)]: value
-            for ex, value in max_exchange.items()}
+        if config['target_added_mass'] is not None:
+            # get flux scaling factor based on the objective's predicted added mass
+            # this adjusts the BiGG FBA bounds to approximate single-cell rates
+            target_added_mass = 4.9e-7  # fit to approximate a doubling time of 2520 sec (42 min) in iAF1260b
+
+            solution = self.model.optimize()
+            objective_value = solution.objective_value
+            added_mass = 0
+            for reaction_id, coeff1 in self.objective.items():
+                for mol_id, coeff2 in self.stoichiometry[reaction_id].items():
+                    if coeff2 < 0:  # molecule is used to make biomass (negative coefficient)
+                        mw = self.molecular_weights.get(mol_id) * (units.g / units.mol)
+                        count = int(-coeff1 * coeff2 * objective_value)
+                        mol = count / AVOGADRO
+                        mol_added_mass = mw * mol
+                        added_mass += mol_added_mass.to('fg').magnitude
+            self.flux_scaling = target_added_mass / added_mass
+        else:
+            self.flux_scaling = 1
 
         # initialize solution
         self.solution = self.model.optimize()
+
+    def minimal_external(self):
+        '''get minimal external state'''
+        max_growth = self.model.slim_optimize()
+        max_exchange = minimal_medium(self.model, max_growth)
+        return {ex[len(EXTERNAL_PREFIX):len(ex)]: value
+            for ex, value in max_exchange.items()}
 
     def set_exchange_bounds(self, bounds={}):
         '''
