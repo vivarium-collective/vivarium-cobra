@@ -86,8 +86,8 @@ class LocalField(Deriver):
 
             # reset the exchange value
             reset_exchanges[mol_id] = {
-                '_value': 0,
-                '_updater': 'set'}
+                '_value': -value,
+                '_updater': 'accumulate'}
 
         return {
             'exchanges': reset_exchanges,

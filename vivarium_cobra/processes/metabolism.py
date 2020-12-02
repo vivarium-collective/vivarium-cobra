@@ -26,7 +26,7 @@ from vivarium.plots.simulation_output import plot_simulation_output
 from vivarium.library.units import units
 from vivarium.library.dict_utils import tuplify_port_dicts
 
-from vivarium_cobra.library.cobra_wrapper import CobraFBA, AVOGADRO
+from vivarium_cobra.library.cobra_wrapper import FBA, AVOGADRO
 from vivarium_cobra.library.regulation_logic import build_rule
 
 
@@ -41,6 +41,8 @@ def get_fg_from_counts(counts_dict, mw):
 
 fba_parameters = [
     'model_path',
+    'default_tolerance',
+    'tolerance',
     'stoichiometry',
     'reversible',
     'external_molecules',
@@ -51,6 +53,7 @@ fba_parameters = [
     'default_upper_bound',
     'target_added_mass',
 ]
+
 
 class Metabolism(Process):
     """A COBRA (COnstraint-Based Reconstruction and Analysis) process for metabolism
@@ -117,15 +120,11 @@ class Metabolism(Process):
     def __init__(self, parameters=None):
         super(Metabolism, self).__init__(parameters)
 
-        self.nAvogadro = AVOGADRO
-
-        # initialize FBA
-        self.fba = CobraFBA({parameter: value
-            for parameter, value in self.parameters.items()
-            if parameter in fba_parameters})
+        # initialize COBRA FBA
+        self.fba = FBA({parameter: value
+                        for parameter, value in self.parameters.items()
+                        if parameter in fba_parameters})
         self.reaction_ids = self.fba.reaction_ids()
-        self.exchange_threshold = self.parameters['exchange_threshold']
-        self.default_upper_bound = self.parameters['default_upper_bound']
 
         # make the regulation functions
         regulation_logic = self.parameters['regulation']
@@ -134,13 +133,7 @@ class Metabolism(Process):
             for reaction, logic in regulation_logic.items()}
 
         # get internal molecules from fba objective
-        self.objective_composition = {}
-        for reaction_id, coeff1 in self.fba.objective.items():
-            for mol_id, coeff2 in self.fba.stoichiometry[reaction_id].items():
-                if mol_id in self.objective_composition:
-                    self.objective_composition[mol_id] += coeff1 * coeff2
-                else:
-                    self.objective_composition[mol_id] = coeff1 * coeff2
+        self.objective_composition = self.fba.get_objective_composition()
 
         # deriver keys
         self.volume_deriver_key = self.parameters['volume_deriver_key']
@@ -232,7 +225,7 @@ class Metabolism(Process):
         # flux bounds
         schema['flux_bounds'] = {
             '*': {
-                '_default': self.default_upper_bound,
+                '_default': self.parameters['default_upper_bound'],
                 '_emit': True}}
 
         # globals
@@ -240,8 +233,7 @@ class Metabolism(Process):
             'mass': {
                 '_default': self.initial_mass,
                 '_emit': True},
-            'mmol_to_counts': {}
-        }
+            'mmol_to_counts': {}}
 
         return schema
 
@@ -270,27 +262,27 @@ class Metabolism(Process):
                     'bin_volume': self.parameters['bin_volume']}}}
 
     def next_update(self, timestep, states):
-        ## get the state
+        # get the state
         external_state = states['external']
         constrained_reaction_bounds = states['flux_bounds']  # (units.mmol / units.L / units.s)
         mmol_to_counts = states['global']['mmol_to_counts']
 
-        ## get flux constraints
+        ## get constraints
         # exchange_constraints based on external availability
         exchange_constraints = {mol_id: 0.0
-            for mol_id, conc in external_state.items() if conc <= self.exchange_threshold}
+            for mol_id, conc in external_state.items() if conc <= self.parameters['exchange_threshold']}
 
-        # get state of regulated reactions (True/False)
+        # state of regulated reactions (True/False)
         flattened_states = tuplify_port_dicts(states)
         regulation_state = {}
         for reaction_id, reg_logic in self.regulation.items():
             regulation_state[reaction_id] = reg_logic(flattened_states)
 
-        ## apply flux constraints
-        # add exchange constraints
+        ## apply constraints
+        # exchange constraints
         self.fba.set_exchange_bounds(exchange_constraints)
 
-        # add constraints coming from flux_bounds
+        # constraints from flux_bounds
         if constrained_reaction_bounds:
             self.fba.constrain_flux(constrained_reaction_bounds)
 
@@ -303,7 +295,7 @@ class Metabolism(Process):
         exchange_fluxes = self.fba.read_exchange_fluxes()  # (units.mmol / units.L / units.s)
         internal_fluxes = self.fba.read_internal_fluxes()  # (units.mmol / units.L / units.s)
 
-        # timestep dependence on fluxes
+        # time step dependence on fluxes
         exchange_fluxes.update((mol_id, flux * timestep) for mol_id, flux in exchange_fluxes.items())
         internal_fluxes.update((mol_id, flux * timestep) for mol_id, flux in internal_fluxes.items())
 
@@ -313,7 +305,7 @@ class Metabolism(Process):
         internal_state_update = {}
         for reaction_id, coeff1 in self.fba.objective.items():
             for mol_id, coeff2 in self.fba.stoichiometry[reaction_id].items():
-                if coeff2 < 0:  # pull out molecule if it is USED to make biomass (negative coefficient)
+                if coeff2 < 0:  # pull out molecule if it is used to make biomass (negative coefficient)
                     added_count = int(-coeff1 * coeff2 * objective_count)
                     internal_state_update[mol_id] = added_count
 
@@ -467,22 +459,14 @@ def run_bigg(
     config.update({
         'bin_volume': volume * units.L})
     metabolism = Metabolism(config)
-    initial_config = {
-        'scale_concentration': 1e1,
-        # 'override_initial': {
-        #     'glc__D_e': 1.0,
-        #     'lcts_e': 8.0}
-    }
+    initial_config = {}
     initial_state = metabolism.initial_state(
         config=initial_config)
 
-    # simulation settings
+    # run simulation
     sim_settings = {
         'initial_state': initial_state,
-        'total_time': total_time,
-    }
-
-    # run simulation
+        'total_time': total_time}
     return simulate_process_in_experiment(metabolism, sim_settings)
 
 
@@ -497,8 +481,7 @@ def main():
 
     if args.bigg:
         timeseries = run_bigg(
-            total_time=2520,
-        )
+            total_time=2520)
 
         # save_timeseries(timeseries, out_dir)  # TODO -- make a test with timeseries reference
         volume_ts = timeseries['global']['volume']
@@ -514,7 +497,8 @@ def main():
         plot_simulation_output(timeseries, plot_settings, out_dir, 'BiGG_simulation')
 
     elif args.toy:
-        timeseries = test_toy_metabolism(total_time=2500)
+        timeseries = test_toy_metabolism(
+            total_time=2500)
 
         volume_ts = timeseries['global']['volume']
         mass_ts = timeseries['global']['mass']

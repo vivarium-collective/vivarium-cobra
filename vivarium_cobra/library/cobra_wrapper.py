@@ -11,6 +11,7 @@ AVOGADRO = constants.N_A * 1 / units.mol
 
 EXTERNAL_PREFIX = 'EX_'
 DEFAULT_UPPER_BOUND = 100.0
+DEFAULT_TOLERANCE = [0.95, 1]
 
 def build_model(
         stoichiometry,
@@ -144,13 +145,13 @@ def extract_model(model):
     }
 
 
-class CobraFBA(object):
+class FBA(object):
     """
     This class provides an interface to cobra FBA.
     It can load in BiGG bigg_models (http://bigg.ucsd.edu/models) if provided a model_path to a saved JSON BiGG model,
     or load in a novel model specified by stoichiometry, reversibility, and objective.
 
-    TODO (Eran) -- MOMA option is provided, but has not yet been tested.
+    TODO (Eran) -- MOMA (Minimization Of Metabolic Adjustment) option is provided, but has not yet been tested.
     """
 
     cobra_configuration = Configuration()
@@ -159,12 +160,13 @@ class CobraFBA(object):
         model_path = config.get('model_path')
 
         # get tolerances
-        self.default_tolerance = config.get('default_tolerance', [0.95, 1])
+        self.default_tolerance = config.get('default_tolerance', DEFAULT_TOLERANCE)
         self.tolerance = config.get('tolerance', {})
 
-        # set MOMA (minimization of metabolic adjustment)
+        # set MOMA
         self.moma = config.get('moma', False)
 
+        # initialize the model
         if model_path:
             # load a BiGG model
             self.model = cobra.io.load_json_model(model_path)
@@ -203,28 +205,44 @@ class CobraFBA(object):
 
         self.exchange_bounds_keys = list(self.exchange_bounds.keys())
 
-        if config.get('target_added_mass') is not None:
-            target_added_mass = config['target_added_mass']
-
-            solution = self.model.optimize()
-            objective_value = solution.objective_value
-            added_mass = 0
-            for reaction_id, coeff1 in self.objective.items():
-                for mol_id, coeff2 in self.stoichiometry[reaction_id].items():
-                    if coeff2 < 0:
-                        # molecule is used to make biomass (negative coefficient)
-                        mw = self.molecular_weights[mol_id] * (units.g / units.mol)
-                        count = -coeff1 * coeff2 * objective_value
-                        mol = count / AVOGADRO
-                        mol_added_mass = mw * mol
-                        added_mass += mol_added_mass.to('fg').magnitude
-
-            self.flux_scaling = target_added_mass / added_mass
-        else:
-            self.flux_scaling = 1
-
         # initialize solution
         self.solution = self.model.optimize()
+
+        # set scaling factors on fluxes
+        self.flux_scaling = 1
+        if config.get('target_added_mass') is not None:
+            target_added_mass = config['target_added_mass']
+            self.flux_scaling_to_target_added(target_added_mass)
+
+    def get_objective_composition(self):
+        objective_composition = {}
+        for reaction_id, coeff1 in self.objective.items():
+            for mol_id, coeff2 in self.stoichiometry[reaction_id].items():
+                if mol_id in objective_composition:
+                    objective_composition[mol_id] += coeff1 * coeff2
+                else:
+                    objective_composition[mol_id] = coeff1 * coeff2
+        return objective_composition
+
+    def flux_scaling_to_target_added(self, target_added_mass):
+        added_mass = self.get_added_mass()
+        self.flux_scaling = target_added_mass / added_mass
+
+    def get_added_mass(self, timestep=1):
+        solution = self.model.optimize()
+        objective_value = solution.objective_value * timestep
+        added_mass = 0
+        for reaction_id, coeff1 in self.objective.items():
+            for mol_id, coeff2 in self.stoichiometry[reaction_id].items():
+                if coeff2 < 0:
+                    # molecule is used to make biomass (negative coefficient)
+                    mw = self.molecular_weights[mol_id] * (units.g / units.mol)  # TODO -- clean up units
+                    count = -coeff1 * coeff2 * objective_value
+                    mol = count / AVOGADRO
+                    mol_added_mass = mw * mol
+                    added_mass += mol_added_mass.to('fg').magnitude
+
+        return added_mass
 
     def minimal_external(self):
         '''get minimal external state'''
@@ -381,7 +399,7 @@ def test_minimal():
     initial_state = {
         'A': 5}
 
-    fba = CobraFBA({
+    fba = FBA({
         'stoichiometry': stoichiometry,
         'reversible': list(stoichiometry.keys()),
         'objective': objective,
@@ -425,7 +443,7 @@ def test_fba():
             'H': 5.0,
             'O2': 100.0}}
 
-    fba = CobraFBA({
+    fba = FBA({
         'stoichiometry': stoichiometry,
         'reversible': list(stoichiometry.keys()),
         'objective': objective,
