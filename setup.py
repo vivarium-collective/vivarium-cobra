@@ -17,11 +17,11 @@ setup(
     ],
     author='Eran Agmon',
     author_email='eagmon@stanford.edu',
-    url='',  # TODO: Put your project URL here.
-    license='',  # TODO: Choose a license.
+    url='https://github.com/vivarium-collective/vivarium-cobra',
+    license='MIT',
     entry_points={
         'console_scripts': []},
-    short_description='',  # TODO: Describe your project briefely.
+    short_description='a vivarium wrapper for COBRApy',
     long_description=long_description,
     long_description_content_type='text/markdown',
     package_data={},
