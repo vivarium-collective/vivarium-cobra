@@ -248,7 +248,7 @@ class FBA(object):
         '''get minimal external state'''
         max_growth = self.model.slim_optimize()
         max_exchange = minimal_medium(self.model, max_growth)
-        return {ex[len(EXTERNAL_PREFIX):len(ex)]: value
+        return {ex[len(EXTERNAL_PREFIX):len(ex)]: value * units.mmol / units.L
             for ex, value in max_exchange.items()}
 
     def set_exchange_bounds(self, bounds={}):

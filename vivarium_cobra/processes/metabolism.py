@@ -104,11 +104,11 @@ class Metabolism(Process):
         'flux_bounds': {},
         'molecular_weights': {},
         'exchange_bounds': {},
-        'default_upper_bound': 0.0,
+        'default_upper_bound': 0.0 * units.mmol / units.L / units.s,
         'target_added_mass': 4.9e-7,  # fit to approximate a doubling time of 2520 sec (42 min) in iAF1260b
         'regulation': {},
         'initial_state': {},
-        'exchange_threshold': 1e-4,
+        'exchange_threshold': 1e-4 * units.mmol / units.L,
         'bin_volume': 1e-6 * units.L,
         'initial_mass': 1000 * units.fg,
         'volume_deriver_key': 'volume_deriver',
@@ -165,7 +165,7 @@ class Metabolism(Process):
 
         # Get external state from minimal_external fba solution
         self.initial_external = {
-            state_id: 0.0
+            state_id: 0.0 * units.mmol / units.L
             for state_id in self.fba.external_molecules}
         self.initial_external.update(self.fba.minimal_external())
 
@@ -264,13 +264,16 @@ class Metabolism(Process):
     def next_update(self, timestep, states):
         # get the state
         external_state = states['external']
-        constrained_reaction_bounds = states['flux_bounds']  # (units.mmol / units.L / units.s)
+        constrained_reaction_bounds = states['flux_bounds']
         mmol_to_counts = states['global']['mmol_to_counts']
 
         ## get constraints
         # exchange_constraints based on external availability
         exchange_constraints = {mol_id: 0.0
             for mol_id, conc in external_state.items() if conc <= self.parameters['exchange_threshold']}
+
+        import ipdb;
+        ipdb.set_trace()
 
         # state of regulated reactions (True/False)
         flattened_states = tuplify_port_dicts(states)
