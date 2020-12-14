@@ -6,9 +6,9 @@ Metabolism Process
 This module defines a :term:`process class` for modeling a cell's
 metabolic processes with flux balance analysis (FBA). The cobrapy
 FBA library is used for solving the problems. This supports metabolic
-bigg_models from the `BiGG model database <http://bigg.ucsd.edu>`_,
+models from the `BiGG model database <http://bigg.ucsd.edu>`_,
 and other configurations that can be passed to :py:class:`Metabolism`
-to create bigg_models of metabolism.
+to create models of metabolism.
 '''
 
 import os
@@ -341,7 +341,7 @@ def get_e_coli_core_config():
         :py:class:`Metabolism` constructor.
     """
     package_path = get_package_path()
-    metabolism_file = os.path.join(package_path, 'bigg_models', 'e_coli_core.json')
+    metabolism_file = os.path.join(package_path, 'models', 'e_coli_core.json')
     return {'model_path': metabolism_file}
 
 def get_iAF1260b_config():
@@ -355,7 +355,7 @@ def get_iAF1260b_config():
         :py:class:`Metabolism` constructor.
     """
     package_path = get_package_path()
-    metabolism_file = os.path.join(package_path, 'bigg_models', 'iAF1260b.json')
+    metabolism_file = os.path.join(package_path, 'models', 'iAF1260b.json')
     return {'model_path': metabolism_file}
 
 def get_toy_configuration():

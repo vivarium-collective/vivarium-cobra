@@ -148,7 +148,7 @@ def extract_model(model):
 class FBA(object):
     """
     This class provides an interface to cobra FBA.
-    It can load in BiGG bigg_models (http://bigg.ucsd.edu/models) if provided a model_path to a saved JSON BiGG model,
+    It can load in BiGG models (http://bigg.ucsd.edu/models) if provided a model_path to a saved JSON BiGG model,
     or load in a novel model specified by stoichiometry, reversibility, and objective.
 
     TODO (Eran) -- MOMA (Minimization Of Metabolic Adjustment) option is provided, but has not yet been tested.
@@ -458,7 +458,7 @@ class JsonFBA(object):
         self.model = cobra.io.load_json_model(path)
 
 def test_canonical():
-    fba = JsonFBA('vivarium_cobra/bigg_models/e_coli_core.json')
+    fba = JsonFBA('vivarium_cobra/models/e_coli_core.json')
     return fba
 
 def test_demo():
