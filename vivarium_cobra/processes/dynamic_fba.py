@@ -18,6 +18,7 @@ import numpy as np
 
 from vivarium.core.process import Process
 from vivarium.core.composition import (
+    process_in_experiment,
     simulate_process_in_experiment,
     save_timeseries,
     PROCESS_OUT_DIR,
@@ -30,7 +31,7 @@ from vivarium_cobra.library.cobra_wrapper import FBA, AVOGADRO
 from vivarium_cobra.library.regulation_logic import build_rule
 
 
-NAME = 'cobra_process'
+NAME = 'dynamic_fba'
 
 
 def get_fg_from_counts(counts_dict, mw):
@@ -55,7 +56,7 @@ fba_parameters = [
 ]
 
 
-class Metabolism(Process):
+class DynamicFBA(Process):
     """A COBRA (COnstraint-Based Reconstruction and Analysis) process for metabolism
 
     This process runs flux balance analysis (FBA) with COBRApy.
@@ -118,7 +119,7 @@ class Metabolism(Process):
     }
 
     def __init__(self, parameters=None):
-        super(Metabolism, self).__init__(parameters)
+        super(DynamicFBA, self).__init__(parameters)
 
         # initialize COBRA FBA
         self.fba = FBA({parameter: value
@@ -264,8 +265,8 @@ class Metabolism(Process):
     def next_update(self, timestep, states):
         # get the state
         external_state = states['external']
-        constrained_reaction_bounds = states['flux_bounds']  # (units.mmol / units.L / units.s)
-        mmol_to_counts = states['global']['mmol_to_counts']
+        constrained_reaction_bounds = states['flux_bounds']  # mmol/L/s
+        mmol_to_counts = states['global']['mmol_to_counts'].magnitude  # L/mmol
 
         ## get constraints
         # exchange_constraints based on external availability
@@ -290,10 +291,10 @@ class Metabolism(Process):
         self.fba.regulate_flux(regulation_state)
 
         ## solve the fba problem
-        objective_exchange = self.fba.optimize() * timestep  # (units.mmol / units.L / units.s)
+        objective_exchange = self.fba.optimize() * timestep  # mmol/L/s
         exchange_reactions = self.fba.read_exchange_reactions()
-        exchange_fluxes = self.fba.read_exchange_fluxes()  # (units.mmol / units.L / units.s)
-        internal_fluxes = self.fba.read_internal_fluxes()  # (units.mmol / units.L / units.s)
+        exchange_fluxes = self.fba.read_exchange_fluxes()  # mmol/L/s
+        internal_fluxes = self.fba.read_internal_fluxes()  # mmol/L/s
 
         # time step dependence on fluxes
         exchange_fluxes.update((mol_id, flux * timestep) for mol_id, flux in exchange_fluxes.items())
@@ -301,7 +302,7 @@ class Metabolism(Process):
 
         # update internal counts from objective flux
         # calculate added mass from the objective molecules' molecular weights
-        objective_count = (objective_exchange * mmol_to_counts).magnitude
+        objective_count = objective_exchange * mmol_to_counts
         internal_state_update = {}
         for reaction_id, coeff1 in self.fba.objective.items():
             for mol_id, coeff2 in self.fba.stoichiometry[reaction_id].items():
@@ -311,7 +312,7 @@ class Metabolism(Process):
 
         # convert exchange fluxes to counts
         exchanges_updates = {
-            mol_id: int((flux * mmol_to_counts).magnitude)
+            mol_id: int(flux * mmol_to_counts)
             for mol_id, flux in exchange_fluxes.items()}
 
         all_fluxes = {}
@@ -432,7 +433,7 @@ def test_toy_metabolism(
     toy_config = get_toy_configuration()
     toy_config['regulation'] = regulation_logic
     toy_config['target_added_mass'] = None
-    toy_metabolism = Metabolism(toy_config)
+    toy_metabolism = DynamicFBA(toy_config)
 
     # simulate toy model
     interval = int(total_time/3)
@@ -458,16 +459,23 @@ def run_bigg(
     config = get_iAF1260b_config()
     config.update({
         'bin_volume': volume * units.L})
-    metabolism = Metabolism(config)
+    metabolism = DynamicFBA(config)
     initial_config = {}
     initial_state = metabolism.initial_state(
         config=initial_config)
 
     # run simulation
-    sim_settings = {
-        'initial_state': initial_state,
-        'total_time': total_time}
-    return simulate_process_in_experiment(metabolism, sim_settings)
+    settings = {
+        'initial_state': initial_state}
+    experiment = process_in_experiment(metabolism, settings)
+
+    # run simulation
+    experiment.update(total_time)
+    experiment.end()
+
+    # return data from emitter
+    return experiment.emitter.get_timeseries()
+
 
 
 def main():
@@ -481,11 +489,11 @@ def main():
 
     if args.bigg:
         timeseries = run_bigg(
-            total_time=2520)
+            total_time=2500)
 
         # save_timeseries(timeseries, out_dir)  # TODO -- make a test with timeseries reference
-        volume_ts = timeseries['global']['volume']
-        mass_ts = timeseries['global']['mass']
+        volume_ts = timeseries['global'][('volume', 'femtoliter')]
+        mass_ts = timeseries['global'][('mass', 'femtogram')]
         print('volume growth: {}'.format(volume_ts[-1] / volume_ts[0]))
         print('mass growth: {}'.format(mass_ts[-1] / mass_ts[0]))
 
@@ -500,8 +508,8 @@ def main():
         timeseries = test_toy_metabolism(
             total_time=2500)
 
-        volume_ts = timeseries['global']['volume']
-        mass_ts = timeseries['global']['mass']
+        volume_ts = timeseries['global'][('volume', 'femtoliter')]
+        mass_ts = timeseries['global'][('mass', 'femtogram')]
         print('volume growth: {}'.format(volume_ts[-1] / volume_ts[0]))
         print('mass growth: {}'.format(mass_ts[-1] / mass_ts[0]))
 
