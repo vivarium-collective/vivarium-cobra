@@ -57,10 +57,23 @@ class Volume(Deriver):
     defaults = {
         'width': 1,  # um
         'initial_mass': 1000 * units.fg,  # wet mass in fg
+        'density': 1100 * units.g / units.L,
     }
 
     def __init__(self, parameters=None):
         super(Volume, self).__init__(parameters)
+
+    def initial_state(self, config=None):
+        states = {
+            'global': {
+                'density': self.parameters['density'],
+                'mass': self.parameters['initial_mass'],
+                'width': self.parameters['width'],
+            }
+        }
+        update = self.next_update(0, states)
+        states = deep_merge(states, update)
+        return states
 
     def ports_schema(self):
         set_states = [
@@ -80,12 +93,11 @@ class Volume(Deriver):
         # default state
         mass = self.parameters['initial_mass']
         width = self.parameters['width']
-        density = 1100 * units.g / units.L
+        density = self.parameters['density']
         volume = mass/density
         mmol_to_counts = (AVOGADRO * volume).to('L/mmol')
         length = length_from_volume(volume.magnitude, width)
         surface_area = surface_area_from_length(length, width)
-
 
         default_state = {
             'global': {

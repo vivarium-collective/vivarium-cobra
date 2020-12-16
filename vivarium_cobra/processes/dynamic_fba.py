@@ -476,6 +476,11 @@ def run_bigg(
     # return data from emitter
     return experiment.emitter.get_timeseries()
 
+def print_growth(global_timeseries):
+    volume_ts = global_timeseries[('volume', 'femtoliter')]
+    mass_ts = global_timeseries[('mass', 'femtogram')]
+    print('volume growth: {}'.format(volume_ts[-1] / volume_ts[0]))
+    print('mass growth: {}'.format(mass_ts[-1] / mass_ts[0]))
 
 
 def main():
@@ -492,10 +497,7 @@ def main():
             total_time=2500)
 
         # save_timeseries(timeseries, out_dir)  # TODO -- make a test with timeseries reference
-        volume_ts = timeseries['global'][('volume', 'femtoliter')]
-        mass_ts = timeseries['global'][('mass', 'femtogram')]
-        print('volume growth: {}'.format(volume_ts[-1] / volume_ts[0]))
-        print('mass growth: {}'.format(mass_ts[-1] / mass_ts[0]))
+        print_growth(timeseries['global'])
 
         # plot
         plot_settings = {
@@ -508,10 +510,7 @@ def main():
         timeseries = test_toy_metabolism(
             total_time=2500)
 
-        volume_ts = timeseries['global'][('volume', 'femtoliter')]
-        mass_ts = timeseries['global'][('mass', 'femtogram')]
-        print('volume growth: {}'.format(volume_ts[-1] / volume_ts[0]))
-        print('mass growth: {}'.format(mass_ts[-1] / mass_ts[0]))
+        print_growth(timeseries['global'])
 
         plot_settings = {}
         plot_simulation_output(timeseries, plot_settings, out_dir, 'toy_metabolism')

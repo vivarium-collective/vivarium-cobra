@@ -24,6 +24,13 @@ class LocalField(Deriver):
         self.nonspatial = self.parameters['nonspatial']
         self.bin_volume = self.parameters['bin_volume']
 
+
+    def initial_state(self, config=None):
+        return {
+            'fields': self.parameters['initial_external']
+        }
+
+
     def ports_schema(self):
         return {
             'exchanges': {
