@@ -266,7 +266,7 @@ class DynamicFBA(Process):
         # get the state
         external_state = states['external']
         constrained_reaction_bounds = states['flux_bounds']  # mmol/L/s
-        mmol_to_counts = states['global']['mmol_to_counts'].magnitude  # L/mmol
+        mmol_to_counts = states['global']['mmol_to_counts'].to('L/mmol').magnitude
 
         ## get constraints
         # exchange_constraints based on external availability
