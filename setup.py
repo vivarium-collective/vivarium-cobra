@@ -31,6 +31,5 @@ setup(
         'vivarium-core',
         'cobra',
         'Arpeggio',
-        'pytest',
     ],
 )
