@@ -458,7 +458,7 @@ class JsonFBA(object):
         self.model = cobra.io.load_json_model(path)
 
 def test_canonical():
-    fba = JsonFBA('vivarium_cobra/models/e_coli_core.json')
+    fba = JsonFBA('vivarium_cobra/bigg_models/e_coli_core.json')
     return fba
 
 def test_demo():

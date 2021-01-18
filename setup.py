@@ -12,10 +12,8 @@ setup(
     packages=[
         'vivarium_cobra',
         'vivarium_cobra.processes',
-        'vivarium_cobra.composites',
-        'vivarium_cobra.experiments',
         'vivarium_cobra.library',
-        'vivarium_cobra.models',
+        'vivarium_cobra.bigg_models',
     ],
     author='Eran Agmon',
     author_email='eagmon@stanford.edu',
