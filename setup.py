@@ -6,6 +6,8 @@ from distutils.core import setup
 with open("README.md", 'r') as readme:
     long_description = readme.read()
 
+# to include data in the package, use MANIFEST.in
+
 setup(
     name='vivarium-cobra',
     version='0.0.5',
