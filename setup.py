@@ -26,11 +26,11 @@ setup(
     short_description='a vivarium wrapper for COBRApy',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    package_data={},
     include_package_data=True,
     install_requires=[
         'vivarium-core',
         'cobra',
         'Arpeggio',
+        'pytest',
     ],
 )
