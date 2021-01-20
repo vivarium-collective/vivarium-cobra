@@ -3,8 +3,8 @@
 from vivarium.core.process import Composite
 from vivarium.processes.tree_mass import TreeMass
 from vivarium_cobra.processes.volume import Volume
-from vivarium_cobra.processes.dynamic_fba import DynamicFBA, get_iAF1260b_config
-
+from vivarium_cobra.processes.dynamic_fba import DynamicFBA
+from vivarium_cobra.processes.configurations import get_iAF1260b_config
 
 
 class CobraComposite(Composite):
