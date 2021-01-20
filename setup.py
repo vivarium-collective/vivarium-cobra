@@ -14,6 +14,7 @@ setup(
     packages=[
         'vivarium_cobra',
         'vivarium_cobra.processes',
+        'vivarium_cobra.composites',
         'vivarium_cobra.library',
         'vivarium_cobra.bigg_models',
     ],

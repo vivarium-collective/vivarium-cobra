@@ -20,7 +20,6 @@ from vivarium.core.process import Process
 from vivarium.core.composition import (
     process_in_experiment,
     simulate_process_in_experiment,
-    save_timeseries,
     PROCESS_OUT_DIR,
 )
 from vivarium.plots.simulation_output import plot_simulation_output
@@ -29,7 +28,7 @@ from vivarium.library.dict_utils import tuplify_port_dicts
 
 from vivarium_cobra.library.cobra_wrapper import FBA, AVOGADRO
 from vivarium_cobra.library.regulation_logic import build_rule
-
+from vivarium_cobra.processes.configurations import get_iAF1260b_config, get_toy_configuration
 
 NAME = 'dynamic_fba'
 
@@ -106,15 +105,12 @@ class DynamicFBA(Process):
         'molecular_weights': {},
         'exchange_bounds': {},
         'default_upper_bound': 0.0,
-        'target_added_mass': 4.9e-7,  # fit to approximate a doubling time of 2520 sec (42 min) in iAF1260b
+        'target_added_mass': 4.9e-7,  # approximates a doubling time of 2520 sec (42 min) in iAF1260b
         'regulation': {},
         'initial_state': {},
         'exchange_threshold': 1e-4,
-        'bin_volume': 1e-6 * units.L,
         'initial_mass': 1000 * units.fg,
-        'volume_deriver_key': 'volume_deriver',
-        'mass_deriver_key': 'mass_deriver',
-        'exchange_deriver_key': 'local_field',
+        'default_mmol_to_counts': 547467.333 * units.L / units.mmol,  # derived from 1000 fg mass
         'time_step': 10,
     }
 
@@ -135,11 +131,6 @@ class DynamicFBA(Process):
 
         # get internal molecules from fba objective
         self.objective_composition = self.fba.get_objective_composition()
-
-        # deriver keys
-        self.volume_deriver_key = self.parameters['volume_deriver_key']
-        self.mass_deriver_key = self.parameters['mass_deriver_key']
-        self.exchange_deriver_key = self.parameters['exchange_deriver_key']
 
         # configure initial mass with initial_state
         self.initial_mass = self.parameters['initial_mass']
@@ -234,74 +225,63 @@ class DynamicFBA(Process):
             'mass': {
                 '_default': self.initial_mass,
                 '_emit': True},
-            'mmol_to_counts': {}}
+            'mmol_to_counts': {
+                '_default': self.parameters['default_mmol_to_counts'],
+            }}
 
         return schema
 
-    def derivers(self):
-        return {
-            self.mass_deriver_key: {
-                'deriver': self.mass_deriver_key,
-                'port_mapping': {
-                    'global': 'global'},
-                'config': {
-                    'from_path': ('..', '..')}},
-            self.volume_deriver_key: {
-                'deriver': self.volume_deriver_key,
-                'port_mapping': {
-                    'global': 'global'},
-                'config': {
-                    'initial_mass': self.initial_mass}},
-            self.exchange_deriver_key: {
-                'deriver': self.exchange_deriver_key,
-                'port_mapping': {
-                    'fields': 'external',
-                    'exchanges': 'exchanges'},
-                'config': {
-                    'initial_external': self.initial_external,
-                    'nonspatial': True,
-                    'bin_volume': self.parameters['bin_volume']}}}
 
     def next_update(self, timestep, states):
+
         # get the state
         external_state = states['external']
-        constrained_reaction_bounds = states['flux_bounds']  # mmol/L/s
+        flux_bounds = states['flux_bounds']  # mmol/L/s
         mmol_to_counts = states['global']['mmol_to_counts'].to('L/mmol').magnitude
 
-        ## get constraints
-        # exchange_constraints based on external availability
+        # get constraints
+        ## exchange_constraints based on external availability
         exchange_constraints = {mol_id: 0.0
-            for mol_id, conc in external_state.items() if conc <= self.parameters['exchange_threshold']}
+            for mol_id, conc in external_state.items()
+                                if conc <= self.parameters['exchange_threshold']}
 
-        # state of regulated reactions (True/False)
+        ## state of regulated reactions (True/False)
         flattened_states = tuplify_port_dicts(states)
         regulation_state = {}
         for reaction_id, reg_logic in self.regulation.items():
             regulation_state[reaction_id] = reg_logic(flattened_states)
 
-        ## apply constraints
-        # exchange constraints
+        # apply constraints
+        ## exchange constraints
         self.fba.set_exchange_bounds(exchange_constraints)
 
-        # constraints from flux_bounds
-        if constrained_reaction_bounds:
+        ## constraints from flux_bounds
+        if flux_bounds:
+            # only pass in reaction_ids that exist in the fba model
+            constrained_reaction_bounds = {
+                reaction_id: constraint
+                for reaction_id, constraint in flux_bounds.items()
+                if reaction_id in self.reaction_ids}
             self.fba.constrain_flux(constrained_reaction_bounds)
 
-        # turn reactions on/off based on regulation
+        ## turn reactions on/off based on regulation
         self.fba.regulate_flux(regulation_state)
 
-        ## solve the fba problem
+        # solve the fba problem
         objective_exchange = self.fba.optimize() * timestep  # mmol/L/s
         exchange_reactions = self.fba.read_exchange_reactions()
         exchange_fluxes = self.fba.read_exchange_fluxes()  # mmol/L/s
         internal_fluxes = self.fba.read_internal_fluxes()  # mmol/L/s
 
-        # time step dependence on fluxes
-        exchange_fluxes.update((mol_id, flux * timestep) for mol_id, flux in exchange_fluxes.items())
-        internal_fluxes.update((mol_id, flux * timestep) for mol_id, flux in internal_fluxes.items())
+        # convert results
+        ## time step dependence on fluxes
+        exchange_fluxes.update((mol_id, flux * timestep)
+                               for mol_id, flux in exchange_fluxes.items())
+        internal_fluxes.update((mol_id, flux * timestep)
+                               for mol_id, flux in internal_fluxes.items())
 
-        # update internal counts from objective flux
-        # calculate added mass from the objective molecules' molecular weights
+        ## update internal counts from objective flux
+        ## calculate added mass from the objective molecules' molecular weights
         objective_count = objective_exchange * mmol_to_counts
         internal_state_update = {}
         for reaction_id, coeff1 in self.fba.objective.items():
@@ -310,7 +290,7 @@ class DynamicFBA(Process):
                     added_count = int(-coeff1 * coeff2 * objective_count)
                     internal_state_update[mol_id] = added_count
 
-        # convert exchange fluxes to counts
+        ## convert exchange fluxes to counts
         exchanges_updates = {
             mol_id: int(flux * mmol_to_counts)
             for mol_id, flux in exchange_fluxes.items()}
@@ -326,103 +306,6 @@ class DynamicFBA(Process):
 
         return update
 
-
-# configs
-def get_package_path():
-    return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-
-def get_e_coli_core_config():
-    """Get an *E. coli* core metabolism model
-
-    The model is the `e_coli_core model from BiGG
-    <http://bigg.ucsd.edu/models/e_coli_core>`_.
-
-    Returns:
-        A configuration for the model that can be passed to the
-        :py:class:`Metabolism` constructor.
-    """
-    package_path = get_package_path()
-    metabolism_file = os.path.join(package_path, 'bigg_models', 'e_coli_core.json')
-    return {'model_path': metabolism_file}
-
-def get_iAF1260b_config():
-    """Get the metabolism config for the iAF1260b BiGG model
-
-    The metabolism model is the `iAF1260b model from BiGG
-    <http://bigg.ucsd.edu/models/iAF1260b>`_.
-
-    Returns:
-        A configuration for the model that can be passed to the
-        :py:class:`Metabolism` constructor.
-    """
-    package_path = get_package_path()
-    metabolism_file = os.path.join(package_path, 'bigg_models', 'iAF1260b.json')
-    return {'model_path': metabolism_file}
-
-def get_toy_configuration():
-    stoichiometry = {
-        'R1': {'A': -1, 'ATP': -1, 'B': 1},
-        'R2a': {'B': -1, 'ATP': 2, 'NADH': 2, 'C': 1},
-        'R2b': {'C': -1, 'ATP': -2, 'NADH': -2, 'B': 1},
-        'R3': {'B': -1, 'F': 1},
-        'R4': {'C': -1, 'G': 1},
-        'R5': {'G': -1, 'C': 0.8, 'NADH': 2},
-        'R6': {'C': -1, 'ATP': 2, 'D': 3},
-        'R7': {'C': -1, 'NADH': -4, 'E': 3},
-        'R8a': {'G': -1, 'ATP': -1, 'NADH': -2, 'H': 1},
-        'R8b': {'G': 1, 'ATP': 1, 'NADH': 2, 'H': -1},
-        'Rres': {'NADH': -1, 'O2': -1, 'ATP': 1},
-        'v_biomass': {'C': -1, 'F': -1, 'H': -1, 'ATP': -10}}
-
-    external_molecules = ['A', 'F', 'D', 'E', 'H', 'O2']
-
-    objective = {'v_biomass': 1.0}
-
-    reversible = ['R6', 'R7', 'Rres']
-
-    default_reaction_bounds = 1000.0
-
-    exchange_bounds = {
-        'A': -0.02,
-        'D': 0.01,
-        'E': 0.01,
-        'F': -0.005,
-        'H': -0.005,
-        'O2': -0.1}
-
-    initial_state = {
-        'external': {
-            'A': 21.0,
-            'F': 5.0,
-            'D': 12.0,
-            'E': 12.0,
-            'H': 5.0,
-            'O2': 100.0}}
-
-    # molecular weight units are (units.g / units.mol)
-    molecular_weights = {
-        'A': 500.0,
-        'B': 500.0,
-        'C': 500.0,
-        'D': 500.0,
-        'E': 500.0,
-        'F': 50000.0,
-        'H': 1.00794,
-        'O2': 31.9988,
-        'ATP': 507.181,
-        'NADH': 664.425}
-
-    config = {
-        'stoichiometry': stoichiometry,
-        'reversible': reversible,
-        'external_molecules': external_molecules,
-        'objective': objective,
-        'initial_state': initial_state,
-        'exchange_bounds': exchange_bounds,
-        'default_upper_bound': default_reaction_bounds,
-        'molecular_weights': molecular_weights}
-
-    return config
 
 # tests
 def test_toy_metabolism(
@@ -457,8 +340,6 @@ def run_bigg(
         volume=1e-5,
 ):
     config = get_iAF1260b_config()
-    config.update({
-        'bin_volume': volume * units.L})
     metabolism = DynamicFBA(config)
     initial_config = {}
     initial_state = metabolism.initial_state(
@@ -476,6 +357,7 @@ def run_bigg(
     # return data from emitter
     return experiment.emitter.get_timeseries()
 
+
 def print_growth(global_timeseries):
     volume_ts = global_timeseries[('volume', 'femtoliter')]
     mass_ts = global_timeseries[('mass', 'femtogram')]
@@ -492,7 +374,16 @@ def main():
     parser.add_argument('--toy', '-t', action='store_true', default=False, )
     args = parser.parse_args()
 
-    if args.bigg:
+    if args.toy:
+        timeseries = test_toy_metabolism(
+            total_time=2500)
+
+        print_growth(timeseries['global'])
+
+        plot_settings = {}
+        plot_simulation_output(timeseries, plot_settings, out_dir, 'toy_metabolism')
+
+    else:
         timeseries = run_bigg(
             total_time=2500)
 
@@ -505,15 +396,6 @@ def main():
             'remove_zeros': True,
             'skip_ports': ['exchange', 'reactions']}
         plot_simulation_output(timeseries, plot_settings, out_dir, 'BiGG_simulation')
-
-    elif args.toy:
-        timeseries = test_toy_metabolism(
-            total_time=2500)
-
-        print_growth(timeseries['global'])
-
-        plot_settings = {}
-        plot_simulation_output(timeseries, plot_settings, out_dir, 'toy_metabolism')
 
 
 if __name__ == '__main__':
