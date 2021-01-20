@@ -1,19 +1,26 @@
-
+import os
 
 from vivarium.core.process import Composite
+from vivarium.core.composition import compartment_in_experiment, COMPOSITE_OUT_DIR
+
+# core processes
 from vivarium.processes.tree_mass import TreeMass
+
+# cobra processes
+from vivarium_cobra.processes.dynamic_fba import DynamicFBA, print_growth
 from vivarium_cobra.processes.volume import Volume
-from vivarium_cobra.processes.dynamic_fba import DynamicFBA
 from vivarium_cobra.processes.configurations import get_iAF1260b_config
 
+from vivarium.plots.simulation_output import plot_simulation_output
+
+
+
+NAME = 'cobra_composite'
 
 class CobraComposite(Composite):
 
-    # set cobra constrained reactions
-    cobra_config = get_iAF1260b_config()
-
     defaults = {
-        'cobra': cobra_config,
+        'cobra': {},
         'flux_deriver': {},
     }
 
@@ -28,7 +35,7 @@ class CobraComposite(Composite):
         }
 
     def generate_topology(self, config):
-        globals_path = ('globals',)
+        globals_path = ('global',)
 
         return {
             'cobra': {
@@ -48,12 +55,57 @@ class CobraComposite(Composite):
         }
 
 
-def main():
+def test_cobra_composite(
+        total_time=100,
+):
+    # initialize composite
+    cobra_config = get_iAF1260b_config()
+    config = {
+        'cobra': cobra_config
+    }
+    composite = CobraComposite(config)
 
-    import ipdb; ipdb.set_trace()
+    # initial state
+    initial_config = {}
+    initial_state = composite.initial_state(
+        config=initial_config)
+
+    # make the experiment
+    exp_settings = {
+        'initial_state': initial_state,
+    }
+    experiment = compartment_in_experiment(composite, exp_settings)
+
+    # run
+    experiment.update(total_time)
+
+    # get the data
+    return experiment.emitter.get_timeseries()
 
 
+def plot_sim_output(timeseries, out_dir='out'):
+    print_growth(timeseries['global'])
 
+    # plot
+    plot_settings = {
+        'max_rows': 30,
+        'remove_zeros': True,
+        'skip_ports': ['exchange', 'reactions']}
+    plot_simulation_output(
+        timeseries,
+        plot_settings,
+        out_dir,
+        'cobra_composite')
+
+
+def main(total_time=100, out_dir='out'):
+    timeseries = test_cobra_composite(
+        total_time=total_time)
+    plot_sim_output(timeseries, out_dir)
 
 if __name__ == '__main__':
-    main()
+    out_dir = os.path.join(COMPOSITE_OUT_DIR, NAME)
+    os.makedirs(out_dir, exist_ok=True)
+    main(
+        total_time=2500,
+        out_dir=out_dir)
