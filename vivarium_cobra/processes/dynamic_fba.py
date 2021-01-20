@@ -236,7 +236,7 @@ class DynamicFBA(Process):
 
         # get the state
         external_state = states['external']
-        constrained_reaction_bounds = states['flux_bounds']  # mmol/L/s
+        flux_bounds = states['flux_bounds']  # mmol/L/s
         mmol_to_counts = states['global']['mmol_to_counts'].to('L/mmol').magnitude
 
         # get constraints
@@ -256,7 +256,12 @@ class DynamicFBA(Process):
         self.fba.set_exchange_bounds(exchange_constraints)
 
         ## constraints from flux_bounds
-        if constrained_reaction_bounds:
+        if flux_bounds:
+            # only pass in reaction_ids that exist in the fba model
+            constrained_reaction_bounds = {
+                reaction_id: constraint
+                for reaction_id, constraint in flux_bounds.items()
+                if reaction_id in self.reaction_ids}
             self.fba.constrain_flux(constrained_reaction_bounds)
 
         ## turn reactions on/off based on regulation
