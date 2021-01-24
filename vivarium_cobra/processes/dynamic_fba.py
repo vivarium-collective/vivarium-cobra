@@ -206,7 +206,7 @@ class DynamicFBA(Process):
                 '_default': self.initial_external[state],
                 '_emit': True}
             schema['exchanges'][state] = {
-                '_default': np.zeros((1, 1))}
+                '_default': 0}
 
         # reactions
         for state in self.reaction_ids:

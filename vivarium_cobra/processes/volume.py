@@ -9,16 +9,16 @@ from vivarium.library.units import units
 from vivarium.library.dict_utils import deep_merge
 
 
-
 PI = math.pi
 AVOGADRO = constants.N_A * 1 / units.mol
 
 
-
 def length_from_volume(volume, width):
-    '''
-    get cell length from volume, using the following equation for capsule volume, with V=volume, r=radius,
-    a=length of cylinder without rounded caps, l=total length:
+    ''' get cell length from volume
+
+    The following equation calculates capsule volume,
+    with V=volume, r=radius, a=length of cylinder without
+    the rounded caps, and l=total length:
 
     V = (4/3)*PI*r^3 + PI*r^2*a
     l = a + 2*r
@@ -29,16 +29,15 @@ def length_from_volume(volume, width):
     return total_length
 
 def volume_from_length(length, width):
-    '''
-    inverse of length_from_volume
-    '''
+    ''' inverse of length_from_volume '''
     radius = width / 2
     cylinder_length = length - width
     volume = cylinder_length * (PI * radius**2) + (4 / 3) * PI * radius**3
     return volume
 
 def surface_area_from_length(length, width):
-    '''
+    ''' calculate surface area
+
     SA = 3*PI*r^2 + 2*PI*r*a
     '''
     radius = width / 2
@@ -49,9 +48,9 @@ def surface_area_from_length(length, width):
 
 
 class Volume(Deriver):
-    """
+    '''
     Process for deriving volume, mmol_to_counts, and shape from the cell mass
-    """
+    '''
 
     name = 'volume_deriver'
     defaults = {
@@ -133,14 +132,14 @@ class Volume(Deriver):
         width = states['global']['width']
 
         # get volume from mass, and more variables from volume
-        volume = mass / density
+        volume = (mass / density).to('fL')
         mmol_to_counts = (AVOGADRO * volume).to('L/mmol')
         length = length_from_volume(volume.magnitude, width)
         surface_area = surface_area_from_length(length, width)
 
         return {
             'global': {
-                'volume': volume.to('fL'),
+                'volume': volume,
                 'mmol_to_counts': mmol_to_counts,
                 'length': length,
                 'surface_area': surface_area,
