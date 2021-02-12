@@ -19,7 +19,7 @@ import numpy as np
 from vivarium.core.process import Process
 from vivarium.core.composition import (
     process_in_experiment,
-    simulate_process_in_experiment,
+    simulate_process,
     PROCESS_OUT_DIR,
 )
 from vivarium.plots.simulation_output import plot_simulation_output
@@ -332,7 +332,7 @@ def test_toy_metabolism(
             'timeline': timeline,
             'time_step': 10}
     }
-    return simulate_process_in_experiment(toy_metabolism, settings)
+    return simulate_process(toy_metabolism, settings)
 
 
 def run_bigg(

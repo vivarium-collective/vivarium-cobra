@@ -1,7 +1,7 @@
 import os
 
-from vivarium.core.process import Composite
-from vivarium.core.composition import compartment_in_experiment, COMPOSITE_OUT_DIR
+from vivarium.core.process import Composer
+from vivarium.core.composition import composer_in_experiment, COMPOSITE_OUT_DIR
 from vivarium.library.units import units
 
 # core processes
@@ -19,7 +19,7 @@ from vivarium.plots.simulation_output import plot_simulation_output
 
 NAME = 'cobra_composite'
 
-class CobraComposite(Composite):
+class CobraComposite(Composer):
 
     defaults = {
         'cobra': {},
@@ -103,7 +103,7 @@ def test_cobra_composite(
     exp_settings = {
         'initial_state': initial_state,
     }
-    experiment = compartment_in_experiment(composite, exp_settings)
+    experiment = composer_in_experiment(composite, exp_settings)
 
     # run
     experiment.update(total_time)
