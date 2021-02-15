@@ -139,7 +139,10 @@ class Volume(Deriver):
 
         return {
             'global': {
-                'volume': volume,
+                # volume could be updated by other processes
+                'volume': {
+                    '_value': volume,
+                    '_updater': 'set'},
                 'mmol_to_counts': mmol_to_counts,
                 'length': length,
                 'surface_area': surface_area,
