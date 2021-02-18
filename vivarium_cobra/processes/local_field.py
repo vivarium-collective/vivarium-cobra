@@ -44,7 +44,6 @@ class LocalField(Deriver):
             'fields': {
                 '*': {
                     '_default': np.ones(1) if not self.nonspatial else 1.0,
-                    '_updater': 'accumulate',
                 }
             },
             'dimensions': {
@@ -86,10 +85,15 @@ class LocalField(Deriver):
                 units.mmol / units.L).magnitude
 
             if self.nonspatial:
-                delta_fields[mol_id] = concentration
+                delta_fields[mol_id] = {
+                    '_value': concentration,
+                    '_updater': 'nonnegative_accumulate'}
             else:
-                delta_fields[mol_id] = np.zeros((n_bins[0], n_bins[1]), dtype=np.float64)
-                delta_fields[mol_id][bin_site[0], bin_site[1]] += concentration
+                delta_field = np.zeros((n_bins[0], n_bins[1]), dtype=np.float64)
+                delta_field[bin_site[0], bin_site[1]] += concentration
+                delta_fields[mol_id] = {
+                    '_value': delta_field,
+                    '_updater': 'nonnegative_accumulate'}
 
             # reset the exchange value
             reset_exchanges[mol_id] = {
