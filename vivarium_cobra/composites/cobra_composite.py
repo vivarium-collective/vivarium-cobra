@@ -8,7 +8,7 @@ from vivarium.library.units import units
 from vivarium.processes.tree_mass import TreeMass
 
 # cobra processes
-from vivarium_cobra.processes.dynamic_fba import DynamicFBA, print_growth
+from vivarium_cobra.processes.cobra_fba import COBRA_FBA, print_growth
 from vivarium_cobra.processes.volume import Volume
 from vivarium_cobra.processes.local_field import LocalField
 from vivarium_cobra.processes.configurations import get_iAF1260b_config
@@ -32,7 +32,7 @@ class CobraComposite(Composer):
 
     def generate_processes(self, config):
 
-        cobra_process = DynamicFBA(config['cobra'])
+        cobra_process = COBRA_FBA(config['cobra'])
 
         processes = {
             'cobra': cobra_process,

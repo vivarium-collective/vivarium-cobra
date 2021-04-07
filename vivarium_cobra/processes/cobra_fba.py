@@ -55,7 +55,7 @@ fba_parameters = [
 ]
 
 
-class DynamicFBA(Process):
+class COBRA_FBA(Process):
     """A COBRA (COnstraint-Based Reconstruction and Analysis) process for metabolism
 
     This process runs flux balance analysis (FBA) with COBRApy.
@@ -115,7 +115,7 @@ class DynamicFBA(Process):
     }
 
     def __init__(self, parameters=None):
-        super(DynamicFBA, self).__init__(parameters)
+        super(COBRA_FBA, self).__init__(parameters)
 
         # initialize COBRA FBA
         self.fba = FBA({parameter: value
@@ -316,7 +316,7 @@ def test_toy_metabolism(
     toy_config = get_toy_configuration()
     toy_config['regulation'] = regulation_logic
     toy_config['target_added_mass'] = None
-    toy_metabolism = DynamicFBA(toy_config)
+    toy_metabolism = COBRA_FBA(toy_config)
 
     # simulate toy model
     interval = int(total_time/3)
@@ -340,7 +340,7 @@ def run_bigg(
         volume=1e-5,
 ):
     config = get_iAF1260b_config()
-    metabolism = DynamicFBA(config)
+    metabolism = COBRA_FBA(config)
     initial_config = {}
     initial_state = metabolism.initial_state(
         config=initial_config)
