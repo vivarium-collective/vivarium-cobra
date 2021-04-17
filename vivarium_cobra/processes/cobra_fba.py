@@ -111,11 +111,12 @@ class COBRA_FBA(Process):
         'exchange_threshold': 1e-4,
         'initial_mass': 1000 * units.fg,
         'default_mmol_to_counts': 547467.333 * units.L / units.mmol,  # derived from 1000 fg mass
+        'no_negative_objective': True,
         'time_step': 10,
     }
 
     def __init__(self, parameters=None):
-        super(COBRA_FBA, self).__init__(parameters)
+        super().__init__(parameters)
 
         # initialize COBRA FBA
         self.fba = FBA({parameter: value
@@ -283,6 +284,10 @@ class COBRA_FBA(Process):
         ## update internal counts from objective flux
         ## calculate added mass from the objective molecules' molecular weights
         objective_count = objective_exchange * mmol_to_counts
+
+        if self.parameters['no_negative_objective'] and objective_exchange < 0.0:
+            return {}
+
         internal_state_update = {}
         for reaction_id, coeff1 in self.fba.objective.items():
             for mol_id, coeff2 in self.fba.stoichiometry[reaction_id].items():
