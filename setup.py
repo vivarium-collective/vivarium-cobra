@@ -10,7 +10,7 @@ with open("README.md", 'r') as readme:
 
 setup(
     name='vivarium-cobra',
-    version='0.0.12',
+    version='0.0.13',
     packages=[
         'vivarium_cobra',
         'vivarium_cobra.processes',
