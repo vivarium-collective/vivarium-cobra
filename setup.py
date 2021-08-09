@@ -30,7 +30,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'vivarium-core>=0.3.0',
-        'cobra==0.20.0',
+        'cobra==0.21.0',
         'Arpeggio',
     ],
 )
