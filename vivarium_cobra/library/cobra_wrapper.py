@@ -325,7 +325,7 @@ class FBA(object):
                     reaction.lower_bound = 0.0
 
     def objective_value(self):
-        if self.solution:
+        if self.solution and self.solution.objective_value:
             objective_value = self.solution.objective_value * self.flux_scaling
             return objective_value
         else:
