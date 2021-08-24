@@ -29,8 +29,8 @@ setup(
     long_description_content_type='text/markdown',
     include_package_data=True,
     install_requires=[
-        'vivarium-core>=0.3.0',
-        'cobra==0.21.0',
+        'vivarium-core>=0.3.4',
+        'cobra==0.20.0',
         'Arpeggio',
     ],
 )
