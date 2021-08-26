@@ -274,6 +274,11 @@ class COBRA_FBA(Process):
         exchange_fluxes = self.fba.read_exchange_fluxes()  # mmol/L/s
         internal_fluxes = self.fba.read_internal_fluxes()  # mmol/L/s
 
+        # if no valid solution, return empty update
+        if (self.parameters['no_negative_objective'] and objective_exchange < 0.0) \
+                or np.isnan(objective_exchange):
+            return {}
+
         # convert results
         ## time step dependence on fluxes
         exchange_fluxes.update((mol_id, flux * timestep)
@@ -284,9 +289,6 @@ class COBRA_FBA(Process):
         ## update internal counts from objective flux
         ## calculate added mass from the objective molecules' molecular weights
         objective_count = objective_exchange * mmol_to_counts
-
-        if self.parameters['no_negative_objective'] and objective_exchange < 0.0:
-            return {}
 
         internal_state_update = {}
         for reaction_id, coeff1 in self.fba.objective.items():
